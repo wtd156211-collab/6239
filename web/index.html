@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>C = A · B 结果热力图</title>
+<style>
+  body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; margin: 24px; color: #222; }
+  h1 { font-size: 20px; margin: 0 0 12px; }
+  #status { color: #a00; margin: 8px 0; }
+  .stats { display: flex; gap: 32px; margin: 12px 0 16px; flex-wrap: wrap; }
+  .stat .label { font-size: 12px; color: #777; }
+  .stat .value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  canvas { border: 1px solid #ccc; background: #f2f2f2; image-rendering: pixelated; }
+  .legend { margin-top: 8px; font-size: 12px; color: #666; display: flex; align-items: center; gap: 8px; }
+  .legend .bar { width: 160px; height: 10px; background: linear-gradient(to right, #f2f2f2, #08306b); border: 1px solid #ccc; }
+</style>
+</head>
+<body>
+<h1>稀疏矩阵乘法结果 C = A · B</h1>
+<div id="status">正在读取 var/page-data.json …</div>
+<div id="panel" hidden>
+  <div class="stats">
+    <div class="stat"><div class="label">规模（行 × 列）</div><div class="value" id="shape"></div></div>
+    <div class="stat"><div class="label">非零个数</div><div class="value" id="nnz"></div></div>
+    <div class="stat"><div class="label">mul 耗时（秒）</div><div class="value" id="t-mul"></div></div>
+    <div class="stat"><div class="label">matvec 耗时（秒）</div><div class="value" id="t-matvec"></div></div>
+    <div class="stat"><div class="label">合计（秒）</div><div class="value" id="t-total"></div></div>
+  </div>
+  <canvas id="heat" width="720" height="720"></canvas>
+  <div class="legend">
+    <span>0</span><div class="bar"></div><span id="max-count"></span>
+    <span id="block-info"></span>
+  </div>
+</div>
+<script>
+const statusEl = document.getElementById("status");
+
+fetch("../var/page-data.json")
+  .then((resp) => {
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    return resp.json();
+  })
+  .then(render)
+  .catch(() => {
+    statusEl.textContent =
+      "取不到 var/page-data.json：请先在仓库根目录运行 " +
+      "python -m sparsemul run <A> <B> <v> var/ ，再用 python -m http.server 8000 打开本页。";
+  });
+
+function render(data) {
+  document.getElementById("panel").hidden = false;
+  statusEl.textContent = "";
+  document.getElementById("shape").textContent = data.shape[0] + " × " + data.shape[1];
+  document.getElementById("nnz").textContent = data.nnz;
+  document.getElementById("t-mul").textContent = data.elapsed_sec.mul.toFixed(3);
+  document.getElementById("t-matvec").textContent = data.elapsed_sec.matvec.toFixed(3);
+  document.getElementById("t-total").textContent = data.elapsed_sec.total.toFixed(3);
+
+  const hm = data.heatmap;
+  document.getElementById("block-info").textContent =
+    "　分块 " + hm.block_rows + " × " + hm.block_cols +
+    "（每块 " + hm.block_height + " 行 × " + hm.block_width + " 列）";
+
+  const canvas = document.getElementById("heat");
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#f2f2f2";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (!hm.block_rows || !hm.block_cols || !hm.cells.length) {
+    document.getElementById("max-count").textContent = "0（结果无非零元素）";
+    return;
+  }
+
+  let maxCount = 0;
+  for (const cell of hm.cells) maxCount = Math.max(maxCount, cell[2]);
+  document.getElementById("max-count").textContent = String(maxCount);
+
+  const cw = canvas.width / hm.block_cols;
+  const ch = canvas.height / hm.block_rows;
+  for (const [br, bc, count] of hm.cells) {
+    // 非零越多颜色越深；开平方拉开小计数的层次，单调不减。
+    const t = Math.sqrt(count / maxCount);
+    const r = Math.round(247 - 239 * t);
+    const g = Math.round(251 - 204 * t);
+    const b = Math.round(255 - 148 * t);
+    ctx.fillStyle = "rgb(" + r + "," + g + "," + b + ")";
+    ctx.fillRect(bc * cw, br * ch, Math.ceil(cw), Math.ceil(ch));
+  }
+}
+</script>
+</body>
+</html>
