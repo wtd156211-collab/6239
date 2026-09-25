@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>sparsemul 结果热力图</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 24px; color: #222; }
+  h1 { font-size: 20px; margin: 0 0 12px; }
+  #stats { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 16px; }
+  .stat { background: #f4f6f8; border: 1px solid #dde3e8; border-radius: 6px; padding: 10px 14px; }
+  .stat .label { font-size: 12px; color: #667; }
+  .stat .value { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  #msg { color: #a33; margin: 8px 0; }
+  canvas { border: 1px solid #ccd; background: #f7f8fa; image-rendering: pixelated; }
+  #legend { margin-top: 8px; font-size: 12px; color: #667; }
+</style>
+</head>
+<body>
+<h1>稀疏矩阵乘积 C = A·B 非零分布热力图</h1>
+<div id="msg"></div>
+<div id="stats">
+  <div class="stat"><div class="label">规模（行 × 列）</div><div class="value" id="shape">-</div></div>
+  <div class="stat"><div class="label">非零个数 nnz</div><div class="value" id="nnz">-</div></div>
+  <div class="stat"><div class="label">mul 耗时（秒）</div><div class="value" id="t-mul">-</div></div>
+  <div class="stat"><div class="label">matvec 耗时（秒）</div><div class="value" id="t-matvec">-</div></div>
+  <div class="stat"><div class="label">合计耗时（秒）</div><div class="value" id="t-total">-</div></div>
+</div>
+<canvas id="heat" width="720" height="720"></canvas>
+<div id="legend">颜色越深表示该块内非零越多；底色表示该块非零数为 0。数据来自 var/page-data.json，页面不做任何重算。</div>
+<script>
+(function () {
+  "use strict";
+  var msg = document.getElementById("msg");
+  fetch("../var/page-data.json").then(function (resp) {
+    if (!resp.ok) { throw new Error("HTTP " + resp.status); }
+    return resp.json();
+  }).then(function (data) {
+    render(data);
+  }).catch(function () {
+    msg.textContent = "取不到 var/page-data.json：请先运行 python -m sparsemul run <A> <B> <v> var/";
+  });
+
+  function render(data) {
+    document.getElementById("shape").textContent = data.shape[0] + " × " + data.shape[1];
+    document.getElementById("nnz").textContent = data.nnz;
+    document.getElementById("t-mul").textContent = data.elapsed_sec.mul.toFixed(3);
+    document.getElementById("t-matvec").textContent = data.elapsed_sec.matvec.toFixed(3);
+    document.getElementById("t-total").textContent = data.elapsed_sec.total.toFixed(3);
+
+    var hm = data.heatmap;
+    var canvas = document.getElementById("heat");
+    var ctx = canvas.getContext("2d");
+    var br = hm.block_rows, bc = hm.block_cols;
+    ctx.fillStyle = "#f7f8fa";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (!br || !bc || !hm.cells.length) {
+      ctx.fillStyle = "#667";
+      ctx.font = "16px sans-serif";
+      ctx.fillText("结果矩阵没有非零元素", 20, 36);
+      return;
+    }
+    var maxCount = 0, i, cells = hm.cells;
+    for (i = 0; i < cells.length; i++) {
+      if (cells[i][2] > maxCount) { maxCount = cells[i][2]; }
+    }
+    var logMax = Math.log1p(maxCount);
+    var cw = canvas.width / bc, ch = canvas.height / br;
+    for (i = 0; i < cells.length; i++) {
+      var t = Math.log1p(cells[i][2]) / logMax;      // 0 < t <= 1，越多越深
+      var light = 92 - 72 * t;                        // HSL 亮度 92% -> 20%
+      ctx.fillStyle = "hsl(215, 70%, " + light.toFixed(1) + "%)";
+      ctx.fillRect(cells[i][1] * cw, cells[i][0] * ch, Math.ceil(cw), Math.ceil(ch));
+    }
+  }
+})();
+</script>
+</body>
+</html>
